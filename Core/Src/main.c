@@ -36,7 +36,7 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define BUTTON_DEBOUNCE HAL_Delay(130)
+
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -54,16 +54,13 @@ static void MX_GPIO_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+int interrupted;
 /* USER CODE END 0 */
 
 /**
   * @brief  The application entry point.
   * @retval int
   */
-
-int button_irq;
-
 int main(void)
 {
   /* USER CODE BEGIN 1 */
@@ -94,22 +91,19 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  button_irq = 0;
-  GPIO_PinState last_state = HAL_GPIO_ReadPin(BUTTON_GPIO_Port, BUTTON_Pin);
+  interrupted = 0;
   while (1)
   {
-	  GPIO_PinState state = HAL_GPIO_ReadPin(BUTTON_GPIO_Port, BUTTON_Pin);
-	  if(last_state != state){
-		  last_state = state;
-		  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, state);
-//		  BUTTON_DEBOUNCE; /* 100 ms */
-	  }
-	  if(button_irq) {
-		  /* Enable IRQ again. */
-//		  BUTTON_DEBOUNCE; /* 100 ms */
-		  button_irq = 0;
-		  HAL_GPIO_TogglePin(LED_INT_GPIO_Port, LED_INT_Pin);
-		  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+	  /* For polling: get the value of the Button pin and set it on the LED pin */
+	  GPIO_PinState state = HAL_GPIO_ReadPin(BUTTON_POLL_GPIO_Port, BUTTON_POLL_Pin);
+	  HAL_GPIO_WritePin(LED_POLL_GPIO_Port, LED_POLL_Pin, state);
+
+
+	  /* For interrupt: reset, flag, enable irq and toggle the LED pin */
+	  if(interrupted) {
+		  interrupted = 0;
+		  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+		  HAL_GPIO_TogglePin(LED_IRQ_GPIO_Port, LED_IRQ_Pin);
 	  }
 
     /* USER CODE END WHILE */
@@ -137,7 +131,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL8;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -169,48 +163,43 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LED_INT_Pin|LED_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LED_POLL_Pin|LED_IRQ_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : LED_INT_Pin LED_Pin */
-  GPIO_InitStruct.Pin = LED_INT_Pin|LED_Pin;
+  /*Configure GPIO pin : BUTTON_POLL_Pin */
+  GPIO_InitStruct.Pin = BUTTON_POLL_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(BUTTON_POLL_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : BUTTON_IRQ_Pin */
+  GPIO_InitStruct.Pin = BUTTON_IRQ_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(BUTTON_IRQ_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : LED_POLL_Pin LED_IRQ_Pin */
+  GPIO_InitStruct.Pin = LED_POLL_Pin|LED_IRQ_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BUTTON_INT_Pin */
-  GPIO_InitStruct.Pin = BUTTON_INT_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(BUTTON_INT_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : BUTTON_Pin */
-  GPIO_InitStruct.Pin = BUTTON_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(BUTTON_GPIO_Port, &GPIO_InitStruct);
-
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-	switch(GPIO_Pin){
-	case BUTTON_INT_Pin:
-		button_irq = 1;
-		break;
-	default: break;
-	}
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if(BUTTON_IRQ_Pin != GPIO_Pin) return;
+
+	interrupted = 1;
+	HAL_NVIC_DisableIRQ(EXTI4_IRQn);
 
 }
-
 /* USER CODE END 4 */
 
 /**
